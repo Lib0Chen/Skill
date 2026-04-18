@@ -1,0 +1,33 @@
+{
+  "base_url": "https://example.com",
+  "search_url_template": "https://example.com/search?q={query}",
+  "cookie_accept_selector": [
+    "#onetrust-accept-btn-handler",
+    "button:has-text(\"Accept\")",
+    "button:has-text(\"Agree\")",
+    "button:has-text(\"OK\")"
+  ],
+  "result_selector": [
+    "a[href]"
+  ],
+  "content_root_selector": null,
+  "parser": {
+    "date_regex": "(\\d{2}-[A-Za-z]{3}-\\d{4})",
+    "target_value_regex": "\\\\b([A-Za-z0-9+()\\-]{1,20})\\\\b",
+    "align_strategy": "zip",
+    "cutoffs": []
+  },
+  "output": {
+    "verified_mapping_csv": "verified_mapping.csv",
+    "scraped_data_csv": "scraped_data.csv",
+    "screenshots_dir": "screenshots",
+    "final_xlsx": "final_report.xlsx",
+    "final_csv": "final_report.csv"
+  },
+  "browser": {
+    "channel": "chrome",
+    "headless": false,
+    "slow_mo_ms": 0,
+    "timeout_ms": 60000
+  }
+}
