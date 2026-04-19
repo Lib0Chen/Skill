@@ -1,0 +1,18 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Local runs / generated artifacts (do not commit)
+screenshots/
+outputs/
+inputs/
+scraped_data.csv
+verified_mapping.csv
+mapping.csv
+parser_mismatch.csv
