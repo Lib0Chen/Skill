@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -9,7 +10,8 @@ from playwright.sync_api import sync_playwright
 
 
 def load_config():
-    cfg_path = Path(__file__).resolve().parents[1] / "config.json"
+    cfg_env = os.environ.get("WEB_ENTITY_RESEARCH_CONFIG", "").strip()
+    cfg_path = Path(cfg_env) if cfg_env else (Path(__file__).resolve().parents[1] / "config.json")
     return json.loads(cfg_path.read_text(encoding="utf-8"))
 
 
@@ -39,13 +41,30 @@ def first_href(page, selectors):
 
 def main():
     cfg = load_config()
-    base_url = cfg["base_url"]
-    search_tpl = cfg["search_url_template"]
-    cookie_selectors = cfg.get("cookie_accept_selector") or []
-    result_selectors = cfg.get("result_selector") or ["a[href]"]
+    site_cfg = cfg.get("site") or {}
+    base_url = site_cfg.get("base_url") or cfg.get("base_url")
+    search_tpl = site_cfg.get("search_url_template") or cfg.get("search_url_template")
+    search_mode = (site_cfg.get("search_mode") or "results").strip().lower()
 
-    mapping_csv = "mapping.csv"
-    out_csv = (cfg.get("output") or {}).get("verified_mapping_csv") or "verified_mapping.csv"
+    selectors_cfg = cfg.get("selectors") or {}
+    cookie_selectors = (
+        selectors_cfg.get("cookie_accept_selectors")
+        or cfg.get("cookie_accept_selectors")
+        or cfg.get("cookie_accept_selector")
+        or []
+    )
+    result_selectors = (
+        selectors_cfg.get("result_selectors")
+        or selectors_cfg.get("result_selector")
+        or cfg.get("result_selectors")
+        or cfg.get("result_selector")
+        or ["a[href]"]
+    )
+
+    io_cfg = cfg.get("io") or cfg.get("output") or {}
+    mapping_csv = io_cfg.get("mapping_csv") or cfg.get("mapping_csv") or "mapping.csv"
+    out_csv = io_cfg.get("verified_mapping_csv") or "verified_mapping.csv"
+    os.makedirs(os.path.dirname(out_csv) or ".", exist_ok=True)
 
     browser_cfg = cfg.get("browser") or {}
     channel = browser_cfg.get("channel", "chrome")
@@ -54,8 +73,10 @@ def main():
     timeout_ms = int(browser_cfg.get("timeout_ms", 60000))
 
     df = pd.read_csv(mapping_csv)
-    if "Search_Key" not in df.columns or "Search_Query" not in df.columns:
-        raise ValueError("mapping.csv 必须包含列：Search_Key, Search_Query")
+    has_new = "Search_Key" in df.columns and "Search_Query" in df.columns
+    has_old = "Original Name" in df.columns and "Search Keyword" in df.columns
+    if not has_new and not has_old:
+        raise ValueError("mapping.csv 必须包含列：Search_Key, Search_Query（或兼容列：Original Name, Search Keyword）")
 
     results = []
     with sync_playwright() as p:
@@ -69,8 +90,8 @@ def main():
         time.sleep(2)
 
         for _, r in df.iterrows():
-            search_key = str(r.get("Search_Key", "")).strip()
-            search_query = str(r.get("Search_Query", "")).strip()
+            search_key = str(r.get("Search_Key") or r.get("Original Name") or "").strip()
+            search_query = str(r.get("Search_Query") or r.get("Search Keyword") or "").strip()
             if not search_key or not search_query:
                 continue
 
@@ -82,17 +103,21 @@ def main():
             try:
                 page.goto(search_url, wait_until="domcontentloaded", timeout=timeout_ms)
                 accept_cookies_if_present(page, cookie_selectors)
-                try:
-                    page.wait_for_selector(",".join(result_selectors), timeout=15000)
-                except PlaywrightTimeoutError:
-                    pass
-
-                href = first_href(page, result_selectors)
-                if href:
-                    target_url = href if href.startswith("http") else f"{base_url}{href}"
+                if search_mode == "direct":
+                    target_url = page.url or search_url
+                    note = "direct_url"
                 else:
-                    target_url = "Not Found"
-                    note = "no_result_link"
+                    try:
+                        page.wait_for_selector(",".join(result_selectors), timeout=15000)
+                    except PlaywrightTimeoutError:
+                        pass
+
+                    href = first_href(page, result_selectors)
+                    if href:
+                        target_url = href if href.startswith("http") else f"{base_url}{href}"
+                    else:
+                        target_url = "Not Found"
+                        note = "no_result_link"
             except Exception:
                 target_url = "Not Found"
                 note = "goto_failed"

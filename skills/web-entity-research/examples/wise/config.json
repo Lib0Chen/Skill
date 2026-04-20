@@ -26,7 +26,7 @@
     "table_match_texts": ["高", "低", "平均", "High", "Low", "Average"]
   },
   "io": {
-    "mapping_csv": ".trae/skills/web-entity-research/assets/test_wise.csv",
+    "mapping_csv": ".trae/skills/web-entity-research/examples/wise/test_wise.csv",
     "verified_mapping_csv": "results/wise_verified_mapping.csv",
     "scraped_data_csv": "results/wise_scraped_data.csv",
     "screenshots_dir": "results/screenshots_wise",
@@ -39,3 +39,4 @@
     "timeout_ms": 60000
   }
 }
+

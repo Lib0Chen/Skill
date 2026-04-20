@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -7,7 +8,8 @@ import pandas as pd
 
 
 def load_config():
-    cfg_path = Path(__file__).resolve().parents[1] / "config.json"
+    cfg_env = os.environ.get("WEB_ENTITY_RESEARCH_CONFIG", "").strip()
+    cfg_path = Path(cfg_env) if cfg_env else (Path(__file__).resolve().parents[1] / "config.json")
     return json.loads(cfg_path.read_text(encoding="utf-8"))
 
 
@@ -54,12 +56,92 @@ def pick_latest_at_or_before(history, cutoff_dt: datetime):
 
 def main():
     cfg = load_config()
-    out_cfg = cfg.get("output") or {}
-    scraped_csv = out_cfg.get("scraped_data_csv") or "scraped_data.csv"
-    out_csv = out_cfg.get("final_csv") or "final_report.csv"
-    out_xlsx = out_cfg.get("final_xlsx") or "final_report.xlsx"
+    io_cfg = cfg.get("io") or cfg.get("output") or {}
+    scraped_csv = io_cfg.get("scraped_data_csv") or "scraped_data.csv"
+    out_csv = io_cfg.get("final_csv") or "final_report.csv"
+    out_xlsx = io_cfg.get("final_xlsx")
 
     parser_cfg = cfg.get("parser") or {}
+    mode = (parser_cfg.get("mode") or "regex").strip().lower()
+
+    os.makedirs(os.path.dirname(out_csv) or ".", exist_ok=True)
+    if out_xlsx:
+        os.makedirs(os.path.dirname(out_xlsx) or ".", exist_ok=True)
+
+    if mode == "table_matrix":
+        df = pd.read_csv(scraped_csv)
+        for col in ("Search_Key", "Target_URL"):
+            if col not in df.columns:
+                raise ValueError(f"{scraped_csv} 缺少列: {col}")
+
+        match_texts = [str(x) for x in (parser_cfg.get("table_match_texts") or []) if str(x).strip()]
+
+        def looks_like_target_table(matrix):
+            if not matrix or not isinstance(matrix, list):
+                return False
+            joined = " ".join(" ".join(map(str, row)) for row in matrix[:10] if isinstance(row, list))
+            if not match_texts:
+                return True
+            return all(t in joined for t in match_texts[:3]) or any(t in joined for t in match_texts)
+
+        chosen = None
+        chosen_key = None
+        for _, r in df.iterrows():
+            search_key = str(r.get("Search_Key", "")).strip()
+            matrix_json = str(r.get("matrix_json", "") or "").strip()
+            if not matrix_json:
+                continue
+            try:
+                matrix = json.loads(matrix_json)
+            except Exception:
+                continue
+            if looks_like_target_table(matrix):
+                chosen = matrix
+                chosen_key = search_key
+                break
+
+        if not chosen:
+            out_df = pd.DataFrame(
+                [
+                    {
+                        "Search_Key": str(df.iloc[0].get("Search_Key", "") if len(df) else ""),
+                        "Target_URL": str(df.iloc[0].get("Target_URL", "") if len(df) else ""),
+                        "Target_Value": "Manual Check",
+                        "Target_Date": "N/A",
+                    }
+                ]
+            )
+            out_df.to_csv(out_csv, index=False, encoding="utf-8-sig")
+            if out_xlsx:
+                try:
+                    out_df.to_excel(out_xlsx, index=False)
+                except PermissionError:
+                    pass
+            return
+
+        header = chosen[0] if len(chosen) > 0 else []
+        data = chosen[1:] if len(chosen) > 1 else []
+        max_cols = max([len(r) for r in ([header] + data) if isinstance(r, list)] or [0])
+
+        def pad(row):
+            row = list(row) if isinstance(row, list) else [str(row)]
+            return row + [""] * (max_cols - len(row))
+
+        header_padded = pad(header)
+        data_padded = [pad(r) for r in data]
+
+        cols = [str(c).strip() or f"col_{i}" for i, c in enumerate(header_padded)]
+        out_df = pd.DataFrame(data_padded, columns=cols)
+        out_df.to_csv(out_csv, index=False, encoding="utf-8-sig")
+        if out_xlsx:
+            try:
+                out_df.to_excel(out_xlsx, index=False)
+            except PermissionError:
+                pass
+        if chosen_key:
+            print(f"[table_matrix] wrote {out_csv} for {chosen_key}")
+        return
+
     date_regex = parser_cfg.get("date_regex") or r"(\d{2}-[A-Za-z]{3}-\d{4})"
     value_regex = parser_cfg.get("target_value_regex") or r"([A-Za-z0-9+()\-]{1,20})"
     align_strategy = parser_cfg.get("align_strategy") or "zip"
@@ -104,10 +186,11 @@ def main():
 
     out_df = pd.DataFrame(rows)
     out_df.to_csv(out_csv, index=False, encoding="utf-8-sig")
-    try:
-        out_df.to_excel(out_xlsx, index=False)
-    except PermissionError:
-        pass
+    if out_xlsx:
+        try:
+            out_df.to_excel(out_xlsx, index=False)
+        except PermissionError:
+            pass
 
     if mismatch_rows:
         mismatch_df = pd.DataFrame(mismatch_rows)
