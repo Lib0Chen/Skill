@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -9,7 +10,8 @@ from playwright.sync_api import sync_playwright
 
 
 def load_config():
-    cfg_path = Path(__file__).resolve().parents[1] / "config.json"
+    cfg_env = os.environ.get("WEB_ENTITY_RESEARCH_CONFIG", "").strip()
+    cfg_path = Path(cfg_env) if cfg_env else (Path(__file__).resolve().parents[1] / "config.json")
     return json.loads(cfg_path.read_text(encoding="utf-8"))
 
 
@@ -39,13 +41,27 @@ def accept_cookies_if_present(page, selectors):
 
 def main():
     cfg = load_config()
-    cookie_selectors = cfg.get("cookie_accept_selector") or []
-    content_root = cfg.get("content_root_selector")
+    selectors_cfg = cfg.get("selectors") or {}
+    cookie_selectors = (
+        selectors_cfg.get("cookie_accept_selectors")
+        or cfg.get("cookie_accept_selectors")
+        or cfg.get("cookie_accept_selector")
+        or []
+    )
+    content_root_selectors = (
+        selectors_cfg.get("content_root_selectors")
+        or cfg.get("content_root_selectors")
+        or cfg.get("content_root_selector")
+        or []
+    )
+    if isinstance(content_root_selectors, str):
+        content_root_selectors = [content_root_selectors]
 
-    out_cfg = cfg.get("output") or {}
-    verified_csv = out_cfg.get("verified_mapping_csv") or "verified_mapping.csv"
-    out_csv = out_cfg.get("scraped_data_csv") or "scraped_data.csv"
-    screenshots_dir = Path(out_cfg.get("screenshots_dir") or "screenshots").resolve()
+    io_cfg = cfg.get("io") or cfg.get("output") or {}
+    verified_csv = io_cfg.get("verified_mapping_csv") or "verified_mapping.csv"
+    out_csv = io_cfg.get("scraped_data_csv") or "scraped_data.csv"
+    os.makedirs(os.path.dirname(out_csv) or ".", exist_ok=True)
+    screenshots_dir = Path(io_cfg.get("screenshots_dir") or "screenshots").resolve()
     screenshots_dir.mkdir(parents=True, exist_ok=True)
 
     browser_cfg = cfg.get("browser") or {}
@@ -83,6 +99,8 @@ def main():
 
             screenshot_path = str((screenshots_dir / f"{i+1:03d}_{safe_filename(search_key)}.png").resolve())
             raw_content = ""
+            raw_html = ""
+            matrix_json = ""
             note = ""
 
             try:
@@ -93,16 +111,46 @@ def main():
                 except PlaywrightTimeoutError:
                     pass
 
-                if content_root:
-                    loc = page.locator(content_root).first
+                loc = None
+                for sel in content_root_selectors:
+                    if not sel:
+                        continue
+                    cand = page.locator(sel).first
                     try:
-                        loc.wait_for(timeout=15000)
+                        cand.wait_for(timeout=3000)
+                        loc = cand
+                        break
+                    except Exception:
+                        continue
+
+                if loc is not None:
+                    try:
                         raw_content = loc.inner_text(timeout=5000)
                     except Exception:
-                        raw_content = page.locator("body").inner_text(timeout=5000)
-                        note = "content_root_not_found"
+                        raw_content = ""
+                    try:
+                        raw_html = loc.evaluate("el => el.outerHTML")
+                    except Exception:
+                        raw_html = ""
+                    try:
+                        js = """
+(el) => {
+  const table = el.tagName && el.tagName.toLowerCase() === 'table'
+    ? el
+    : (el.querySelector ? el.querySelector('table') : null);
+  if (!table) return null;
+  const rows = Array.from(table.querySelectorAll('tr'));
+  return rows.map(tr => Array.from(tr.querySelectorAll('th,td')).map(c => (c.innerText || '').trim()));
+}
+"""
+                        matrix = loc.evaluate(js)
+                        if matrix:
+                            matrix_json = json.dumps(matrix, ensure_ascii=False)
+                    except Exception:
+                        matrix_json = ""
                 else:
                     raw_content = page.locator("body").inner_text(timeout=5000)
+                    note = "content_root_not_found"
 
                 try:
                     page.screenshot(path=screenshot_path, full_page=True)
@@ -120,6 +168,8 @@ def main():
                     "Search_Key": search_key,
                     "Target_URL": target_url,
                     "raw_content": raw_content,
+                    "raw_html": raw_html,
+                    "matrix_json": matrix_json,
                     "screenshot_path": screenshot_path,
                     "note": note,
                 }
