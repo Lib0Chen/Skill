@@ -1,0 +1,5 @@
+column_name,description,missing_policy,example
+Search_Key,输入清单中的实体标识（可理解为行名）,Required,Example Entity
+Target_URL,最终确认的目标页面 URL,Manual Check,https://example.com/item/123
+Target_Value,从页面抽取的目标值（可能是价格/评级/指标）,Manual Check,99.00
+Target_Date,与目标值关联的日期（如适用）,N/A,03-Dec-2020

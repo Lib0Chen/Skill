@@ -1,0 +1,42 @@
+{
+  "site": {
+    "base_url": "https://wise.com",
+    "search_url_template": "https://wise.com/zh-cn/currency-converter/{query}-rate/history",
+    "search_mode": "direct"
+  },
+  "selectors": {
+    "cookie_accept_selectors": [
+      "#onetrust-accept-btn-handler",
+      "button:has-text(\"Accept\")",
+      "button:has-text(\"Agree\")",
+      "button:has-text(\"OK\")",
+      "button:has-text(\"接受\")",
+      "button:has-text(\"同意\")"
+    ],
+    "result_selectors": [],
+    "content_root_selectors": [
+      "table:has-text(\"高\"):has-text(\"低\"):has-text(\"平均\")",
+      "table:has-text(\"High\"):has-text(\"Low\"):has-text(\"Average\")",
+      "div:has-text(\"高\"):has-text(\"低\"):has-text(\"平均\")",
+      "div:has-text(\"High\"):has-text(\"Low\"):has-text(\"Average\")"
+    ]
+  },
+  "parser": {
+    "mode": "table_matrix",
+    "table_match_texts": ["高", "低", "平均", "High", "Low", "Average"]
+  },
+  "io": {
+    "mapping_csv": ".trae/skills/web-entity-research/examples/wise/test_wise.csv",
+    "verified_mapping_csv": "results/wise_verified_mapping.csv",
+    "scraped_data_csv": "results/wise_scraped_data.csv",
+    "screenshots_dir": "results/screenshots_wise",
+    "final_csv": "results/wise_history_matrix.csv"
+  },
+  "browser": {
+    "channel": "chrome",
+    "headless": false,
+    "slow_mo_ms": 0,
+    "timeout_ms": 60000
+  }
+}
+
